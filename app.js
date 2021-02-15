@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 'use strict';
 
-const etherpad = require('etherpad-cli-client');
-const Measured = require('measured');
-const async = require('async');
-const argv = require('argv');
-const argvopts = require('./argopts.js').opts;
+/*
+* Overview
+*
+* 1. Connect 5(default) users.
+* 2. Users set an author name.
+* 3. Disconnect Users
+* 4. Check reconnected users get their original name back
+*
+*/
 
-const stats = Measured.createCollection();
-const startTimestamp = Date.now();
-const activeConnections = new Measured.Counter();
-const users = [];
-let userUntilFail = false;
-const globalStats = {};
-let maxPS = 0;
+const etherpad = require('etherpad-cli-client');
+// const argv = require('argv');
+// const argvopts = require('./argopts.js').opts;
+// const startTimestamp = Date.now();
+const authors = {};
 
 const randomPadName = () => { // From index.html
   const chars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
@@ -26,9 +28,50 @@ const randomPadName = () => { // From index.html
   return randomstring;
 };
 
+// takes argvoptsand argv and build an array of users ['a','a'......];
+const prepareUsers = () => ['a', 'a', 'a', 'a', 'a'];
+
+// takes connection settings and returns a url for etherpad.connect to connect to
+const prepareConnection = () => `http://127.0.0.1:9001/p/${randomPadName()}`;
+const users = prepareUsers(); // somewhat ghetto but matches load test implementation.
+const host = prepareConnection();
+
+for (const [user] of users) {
+  console.log(`creating connection for ${user}`);
+  const pad = etherpad.connect(host);
+  pad.on('connected', (connectionInfo) => {
+    console.log(connectionInfo);
+    // set name
+    const authorName = randomPadName();
+    // store authorName in an object
+    authors[connectionInfo.userId] = authorName;
+    // tell the server to update our name
+    // pad.changeName(authorName);
+    // pad.chatMsg(`${authorName} sent a message`);
+    // wait a second...
+    console.log(pad);
+    // pad.disconnect();
+    const reconnected = etherpad.connect(host);
+    reconnected.on('connect', (connectionInfo) => {
+      // reconnected.
+      // do we still have the right userId?
+      if (authors[connectionInfo.userId] === connectionInfo.data.authorName) {
+        // good stuff
+      } else {
+        // bad times;
+      }
+    });
+  });
+  pad.on('message', (message) => {
+    console.warn('message', message);
+  });
+}
+
+
+/*
 // Take Params and process them
 const args = argv.option(argvopts).run();
-let host;
+
 // Check for a host..
 if (process.argv[2] && process.argv[2].indexOf('http') !== -1) {
   // It the arv2 item contains a hostname..
@@ -57,18 +100,12 @@ setInterval(() => {
   const currentTime = Date.now();
   if (currentTime > endTime) {
     console.log('Test duration complete and user Tests PASS');
-    console.log(stats.toJSON());
-    if (Object.keys(stats.toJSON()).length === 0) {
-      console.error("no test data gathered, perhaps userTest wasn't enabled?");
-      process.exit(1); /* eslint-disable-line no-process-exit */
-    }
-    process.exit(0); /* eslint-disable-line no-process-exit */
+    // process.exit(0);
   }
 }, 100);
 
 // Create user until failure.
 const userUntilFailFn = () => {
-  userUntilFail = true;
   const users = ['a', 'a', 'a', 'a'];
 
   setInterval(() => {
@@ -111,17 +148,14 @@ const newAuthor = () => {
   const pad = etherpad.connect(host);
   pad.on('socket_timeout', () => {
     console.error('socket timeout connecting to pad');
-    process.exit(1); /* eslint-disable-line no-process-exit */
+    // process.exit(1); eslint-disable-line no-process-exit
   });
   pad.on('socket_error', () => {
     console.error('connection error connecting to pad, did you remember to set userTest to true?');
-    process.exit(1); /* eslint-disable-line no-process-exit */
+    process.exit(1);
   });
   pad.on('connected', (padState) => {
     globalStats.numConnectedUsers = padState.numConnectedUsers;
-    stats.meter('clientsConnected').mark();
-    stats.meter('authorsConnected').mark();
-    activeConnections.inc();
     updateMetricsUI();
 
     // console.log("Connected Author to", padState.host);
@@ -130,86 +164,16 @@ const newAuthor = () => {
     // https://imlocation.wordpress.com/2007/12/05/how-fast-do-people-type/
     // This simulates the Mean of an author
     setInterval(() => {
-      stats.meter('appendSent').mark();
       updateMetricsUI();
       try {
         pad.append(randomString()); // Appends 4 Chars
       } catch (e) {
-        stats.meter('error').mark();
         console.log('Error!');
       }
     }, 400);
   });
   pad.on('message', (msg) => {
     if (msg.type !== 'COLLABROOM') return;
-    if (msg.data.type === 'ACCEPT_COMMIT') {
-      stats.meter('acceptedCommit').mark();
-    }
-  });
-  pad.on('newContents', (atext) => {
-    stats.meter('changeFromServer').mark();
   });
 };
-
-const randomString = () => {
-  let randomstring = '';
-  // var string_length = Math.floor(Math.random() *2);
-  const string_length = 4; // See above for WPM stats
-  for (let i = 0; i < string_length; i++) {
-    const charNumber = Math.random() * (300 - 1) + 1;
-    const str = String.fromCharCode(parseInt(charNumber));
-    // This method generates sufficient noise
-    // It also includes white space and non ASCII Chars
-    randomstring += str;
-  }
-  return randomstring;
-};
-
-// Redraws the UI of metrics
-const updateMetricsUI = () => {
-  const jstats = stats.toJSON();
-  const testDuration = Date.now() - startTimestamp;
-
-  console.log('\u001b[2J\u001b[0;0H');
-  console.log('user Test Metrics -- Target Pad', host, '\n');
-  // console.log(jstats.clientsConnected);
-  if (globalStats.numConnectedUsers) {
-    console.log('Total Clients Connected:', globalStats.numConnectedUsers);
-  }
-  if (jstats.clientsConnected.count) {
-    console.log('Local Clients Connected:', jstats.clientsConnected.count);
-  }
-  if (jstats.authorsConnected) {
-    console.log('Authors Connected:', jstats.authorsConnected.count);
-  }
-  if (jstats.appendSent) {
-    console.log('Sent Append messages:', jstats.appendSent.count);
-  }
-  if (jstats.error) {
-    console.log('Errors:', jstats.error.count);
-  }
-  if (jstats.acceptedCommit) {
-    console.log('Commits accepted by server:', jstats.acceptedCommit.count);
-  }
-  if (jstats.changeFromServer) {
-    console.log('Commits sent from Server to Client:',
-        jstats.changeFromServer.count);
-    console.log('Current rate per second of Commits sent from Server to Client:',
-        Math.round(jstats.changeFromServer.currentRate));
-    console.log('Mean(per second) of # of Commits sent from Server to Client:',
-        Math.round(jstats.changeFromServer.mean));
-    if (Math.round(jstats.changeFromServer.currentRate) > maxPS) {
-      maxPS = Math.round(jstats.changeFromServer.currentRate);
-    }
-    console.log('Max(per second) of # of Messages (SocketIO has cap of 10k):',
-        maxPS || Math.round(jstats.changeFromServer.currentRate));
-  }
-  if (jstats.appendSent && jstats.acceptedCommit) {
-    const diff = jstats.appendSent.count - jstats.acceptedCommit.count;
-    if (diff > 5) {
-      console.log('Number of commits not yet replied as ACCEPT_COMMIT from server', diff);
-      if (userUntilFail && diff > 100) process.exit(1); /* eslint-disable-line no-process-exit */
-    }
-  }
-  console.log('Seconds test has been running for:', parseInt(testDuration / 1000));
-};
+*/
