@@ -40,13 +40,6 @@ if (process.argv[2] && process.argv[2].indexOf('http') !== -1) {
   host = `http://127.0.0.1:9001/p/${randomPadName()}`;
 }
 
-if (args.options.lurkers) {
-  let i = 0;
-  while (i < args.options.lurkers) {
-    users.push('l');
-    i++;
-  }
-}
 if (args.options.authors) {
   let x = 0;
   while (x < args.options.authors) {
@@ -76,20 +69,13 @@ setInterval(() => {
 // Create user until failure.
 const userUntilFailFn = () => {
   userUntilFail = true;
-  // users at ratio of 3(lurkers):1(author), every 5 seconds it adds more.
-  const users = ['a', 'l', 'l', 'l'];
+  const users = ['a', 'a', 'a', 'a'];
 
   setInterval(() => {
     async.eachSeries(users, (type, callback) => {
       setTimeout(() => {
-        if (type === 'l') {
-          newLurker();
-          callback();
-        }
-        if (type === 'a') {
-          newAuthor();
-          callback();
-        }
+        newAuthor();
+        callback();
       }, 200 / (users.length || 1));
     }, (err) => {
     });
@@ -97,20 +83,12 @@ const userUntilFailFn = () => {
 };
 
 
-// If there are authors / lurkers specified let's connect them up!
-if (args.options.authors || args.options.lurkers) {
+// If there are authors specified let's connect them up!
+if (args.options.authors) {
   async.eachSeries(users, (type, callback) => {
     setTimeout(() => {
-      if (type === 'l') {
-        newLurker();
-        callback();
-      }
-      if (type === 'a') {
-        newAuthor();
-        callback();
-      }
-
-      //  }, 1000/(args.options.authors || 1));
+      newAuthor();
+      callback();
     }, 200 / (users.length || 1));
     // All authors connect within 1 second but send messages on
     // slightly different intervals
@@ -173,29 +151,6 @@ const newAuthor = () => {
   });
 };
 
-// Creates a new lurker.
-const newLurker = () => {
-  const pad = etherpad.connect(host);
-  pad.on('socket_timeout', () => {
-    console.error('socket timeout connecting to pad');
-    process.exit(1); /* eslint-disable-line no-process-exit */
-  });
-  pad.on('socket_error', () => {
-    console.error('connection error connecting to pad, did you remember to set userTest to true?');
-    process.exit(1); /* eslint-disable-line no-process-exit */
-  });
-  pad.on('connected', (padState) => {
-    globalStats.numConnectedUsers = padState.numConnectedUsers;
-    stats.meter('clientsConnected').mark();
-    stats.meter('lurkersConnected').mark();
-    updateMetricsUI();
-    // console.log("Connected new lurker to", padState.host);
-  });
-  pad.on('newContents', (atext) => {
-    stats.meter('changeFromServer').mark();
-  });
-};
-
 const randomString = () => {
   let randomstring = '';
   // var string_length = Math.floor(Math.random() *2);
@@ -226,9 +181,6 @@ const updateMetricsUI = () => {
   }
   if (jstats.authorsConnected) {
     console.log('Authors Connected:', jstats.authorsConnected.count);
-  }
-  if (jstats.lurkersConnected) {
-    console.log('Lurkers Connected:', jstats.lurkersConnected.count);
   }
   if (jstats.appendSent) {
     console.log('Sent Append messages:', jstats.appendSent.count);
