@@ -1,7 +1,7 @@
 {
   "name": "etherpad-user-test",
   "description": "Client to automatically test user properties in an Etherpad Instance",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "author": {
     "name": "John McLear",
     "email": "john@mclear.co.uk",
